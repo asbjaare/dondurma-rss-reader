@@ -30,11 +30,13 @@ class WidgetUpdateService {
       await Future.wait([_saveLatest(sorted), _saveCategory(sorted)]);
       await Future.wait([
         HomeWidget.updateWidget(
-          androidName: 'widgets.LatestNewsWidgetReceiver',
+          qualifiedAndroidName:
+              'io.devopen.dondurma.widgets.LatestNewsWidgetReceiver',
           iOSName: 'LatestNewsWidget',
         ),
         HomeWidget.updateWidget(
-          androidName: 'widgets.CategoryWidgetReceiver',
+          qualifiedAndroidName:
+              'io.devopen.dondurma.widgets.CategoryWidgetReceiver',
           iOSName: 'CategoryWidget',
         ),
       ]);

@@ -44,6 +44,9 @@ Five `ChangeNotifier` providers power UI state. `FeedProvider` receives subscrip
 
 ### Development
 
+For this fork's Mac setup and installable APKs on GitHub, see
+[personal Android development](docs/personal-android.md).
+
 Requires Flutter compatible with Dart `^3.11.0`.
 
 ```bash

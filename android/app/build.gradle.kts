@@ -52,7 +52,8 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.devopen.dondurma"
+        applicationId = System.getenv("DONDURMA_APPLICATION_ID")
+            ?.takeIf { it.isNotBlank() } ?: "io.devopen.dondurma"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
