@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
@@ -35,10 +36,11 @@ void main() {
   FeedItem buildItem({
     String category = 'Tech',
     String siteName = 'Example Site',
+    String title = 'Example Title',
   }) => FeedItem(
     id: 'item-1',
     siteName: siteName,
-    title: 'Example Title',
+    title: title,
     description: 'Example description text',
     timeAgo: '1h',
     siteIcon: Icons.rss_feed,
@@ -50,18 +52,55 @@ void main() {
     feedUrl: 'https://example.com/feed',
   );
 
-  Widget wrap(FeedItem item) => MultiProvider(
+  Widget wrap(FeedItem item, {double textScale = 1}) => MultiProvider(
     providers: [
       ChangeNotifierProvider(create: (_) => SubscriptionProvider()),
       ChangeNotifierProvider(create: (_) => BookmarkProvider()),
       ChangeNotifierProvider(create: (_) => FeedProvider()),
     ],
     child: MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          textScaler: TextScaler.linear(textScale),
+        ),
+        child: child!,
+      ),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(body: FeedListItem(item: item)),
     ),
   );
+
+  for (final textScale in [1.0, 2.0]) {
+    testWidgets(
+      'narrow cards show the full headline at text scale $textScale',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        const headline =
+            'A much longer news headline that readers should be able to read '
+            'in full without opening the article or guessing its ending';
+        await tester.pumpWidget(
+          wrap(buildItem(title: headline), textScale: textScale),
+        );
+        await tester.pumpAndSettle();
+
+        final titleFinder = find.text(headline);
+        final paragraph = tester.renderObject<RenderParagraph>(titleFinder);
+        expect(
+          MediaQuery.textScalerOf(tester.element(titleFinder)).scale(16),
+          16 * textScale,
+        );
+        expect(paragraph.didExceedMaxLines, isFalse);
+        expect(tester.getSize(titleFinder).width, greaterThan(280));
+        expect(find.text('Example description text'), findsNothing);
+        expect(find.byIcon(Icons.bookmark_border), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('meta row shows category name next to site name', (tester) async {
     await tester.pumpWidget(wrap(buildItem(category: 'Tech')));
