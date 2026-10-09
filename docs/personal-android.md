@@ -64,6 +64,11 @@ building, verifies the APK signature, and publishes a new `personal-*` release
 with `dondurma-personal.apk` and its SHA-256 checksum. CI build numbers start at
 1,000,001 to stay above the current local build number.
 
+Publishing also enables Actions if this fork has them disabled and waits for
+GitHub to register the workflow after pushing it. If GitHub still cannot find
+the workflow, open the repository's Actions tab and accept the fork's workflow
+enablement prompt, then retry the publishing script.
+
 Follow progress at
 [Actions](https://github.com/asbjaare/dondurma-rss-reader/actions/workflows/personal-apk.yml).
 On your phone, open
