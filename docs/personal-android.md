@@ -55,7 +55,11 @@ bash scripts/publish-apk.sh
 
 This verifies repository access through `gh`, uploads the four personal signing
 secrets using stdin, pushes `main`, and triggers the manual APK workflow. Existing
-signing credentials are reused. The workflow runs analysis and tests before
+signing credentials are reused. It explicitly selects the saved `asbjaare` account
+and uses that account for the Git push, bypassing macOS Keychain's cached work
+credentials. It does not switch your global `gh` account. If the personal account
+is not logged in, run `gh auth login --hostname github.com` and sign in as
+`asbjaare` in your browser before retrying. The workflow runs analysis and tests before
 building, verifies the APK signature, and publishes a new `personal-*` release
 with `dondurma-personal.apk` and its SHA-256 checksum. CI build numbers start at
 1,000,001 to stay above the current local build number.
