@@ -21,7 +21,7 @@ env:
 
 jobs:
   preflight:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.repository == 'DevOpen-io/dondurma-rss-reader' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.validate.outputs.version }}
@@ -83,6 +83,7 @@ jobs:
           PLAY_MANAGED_PUBLISHING_DISABLED: ${{ vars.PLAY_MANAGED_PUBLISHING_DISABLED }}
 
   checks:
+    if: github.repository == 'DevOpen-io/dondurma-rss-reader'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,7 +97,7 @@ jobs:
       - run: flutter test
 
   ci-apk:
-    if: "!startsWith(github.ref, 'refs/tags/')"
+    if: github.repository == 'DevOpen-io/dondurma-rss-reader' && !startsWith(github.ref, 'refs/tags/')
     needs: checks
     runs-on: ubuntu-latest
     steps:
@@ -119,6 +120,7 @@ jobs:
           if-no-files-found: error
 
   android-build:
+    if: github.repository == 'DevOpen-io/dondurma-rss-reader'
     needs: [checks, preflight]
     runs-on: ubuntu-latest
     env:
@@ -206,6 +208,7 @@ jobs:
           rm -f -- "$RUNNER_TEMP/upload.der" "$RUNNER_TEMP/aab-verification.txt" "$RUNNER_TEMP/apk-verification.txt"
 
   ios-build:
+    if: github.repository == 'DevOpen-io/dondurma-rss-reader'
     needs: [checks, preflight]
     runs-on: macos-15
     env:
@@ -274,6 +277,7 @@ jobs:
           rm -f -- "$RUNNER_TEMP/upload.der" "$RUNNER_TEMP/aab-verification.txt" "$RUNNER_TEMP/apk-verification.txt"
 
   android-submit:
+    if: github.repository == 'DevOpen-io/dondurma-rss-reader'
     needs: [preflight, android-build, ios-build]
     runs-on: ubuntu-latest
     env:
@@ -337,6 +341,7 @@ jobs:
           rm -f -- "$RUNNER_TEMP/upload.der" "$RUNNER_TEMP/aab-verification.txt" "$RUNNER_TEMP/apk-verification.txt"
 
   ios-submit:
+    if: github.repository == 'DevOpen-io/dondurma-rss-reader'
     needs: [preflight, android-build, ios-build]
     runs-on: macos-15
     env:
@@ -397,6 +402,7 @@ jobs:
           rm -f -- "$RUNNER_TEMP/upload.der" "$RUNNER_TEMP/aab-verification.txt" "$RUNNER_TEMP/apk-verification.txt"
 
   github-release:
+    if: github.repository == 'DevOpen-io/dondurma-rss-reader'
     needs: [preflight, android-build, ios-build]
     runs-on: ubuntu-latest
     permissions:

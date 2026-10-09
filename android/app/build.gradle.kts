@@ -21,10 +21,12 @@ val releaseStorePassword = signingValue("storePassword", "ANDROID_KEYSTORE_PASSW
 val releaseKeyPassword = signingValue("keyPassword", "ANDROID_KEY_PASSWORD")
 val releaseSigningReady = releaseStore?.isFile == true && releaseAlias != null &&
     releaseStorePassword != null && releaseKeyPassword != null
+// CI builds without credentials; a separate clean runner signs the APK.
+val unsignedRelease = System.getenv("DONDURMA_UNSIGNED_BUILD") == "true"
 // Check the actual task graph: debug builds and IDE configuration need no key.
 gradle.taskGraph.whenReady {
     if (allTasks.any { it.project == project && it.name.contains("Release", ignoreCase = true) } &&
-        !releaseSigningReady) {
+        !releaseSigningReady && !unsignedRelease) {
         throw GradleException("Release signing missing. Set storeFile, storePassword, keyAlias and " +
             "keyPassword in android/key.properties, or the ANDROID_KEYSTORE_PATH, " +
             "ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD environment variables.")
@@ -69,7 +71,7 @@ android {
                 "proguard-rules.pro",
             )
 
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (unsignedRelease) null else signingConfigs.getByName("release")
         }
     }
 }

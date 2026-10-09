@@ -84,9 +84,31 @@ needed for future updates. Do not commit either file. On another Mac, restore
 both files and adjust `ANDROID_KEYSTORE_PATH` in `signing.env` before publishing;
 otherwise a new key would replace the repository's personal signing secrets.
 
-The original `v*` tags still trigger the upstream store-release workflow. Use
-the personal workflow for GitHub APK releases. Its `personal-*` tags do not
-match those store-release triggers.
+The original store-release definitions remain available upstream. Use
+the personal workflow for GitHub APK releases. The inherited store workflow is
+now restricted to the original upstream repository and skips every job on this
+fork. The personal workflow only runs manually on this fork's `main` branch.
+
+## Credential security
+
+See [the security review](security-review.md) for the threat model and remaining
+limits. Personal builds, signing, and publishing use separate GitHub-hosted
+runners. Builds have no signing secrets or repository write token. Only a single
+signing step receives the four personal signing secrets; it does not check out
+or execute repository source. Only the publishing job has `contents: write`.
+Actions are pinned to exact commits and Dependabot proposes updates for review.
+
+Your local `gh` token is used only for GitHub API calls and the Git push. It is
+not uploaded as an Actions secret. Review local scripts before running them:
+removing token environment variables is not a sandbox, and local code can still
+access files or credentials available to your OS account.
+
+For additional protection against malicious workflow edits, move the four
+`PERSONAL_*` secrets to a GitHub environment with required reviewers and a
+`main` deployment restriction, reference that environment on the signing job,
+and update secret uploads to use `gh secret set --env <environment>`. Remove
+the repository-level copies after migration. An unprotected environment or an
+environment with duplicate repository secrets does not provide this barrier.
 
 References: [Flutter SDK archive](https://docs.flutter.dev/install/archive),
 [Android command-line tools](https://developer.android.com/tools/releases/cmdline-tools),
