@@ -191,7 +191,8 @@ class FeedProvider extends ChangeNotifier {
     Future<bool> Function()? backgroundCacheImporter,
     Future<List<ConnectivityResult>> Function()? connectivityCheck,
   }) : _backgroundCacheImporter = backgroundCacheImporter,
-       _connectivityCheck = connectivityCheck ?? Connectivity().checkConnectivity {
+       _connectivityCheck =
+           connectivityCheck ?? Connectivity().checkConnectivity {
     _observedArticleStore =
         observedArticleStore ?? ObservedArticleStore.forBox(_box);
     _refresher = FeedRefresher(
@@ -878,10 +879,12 @@ class FeedProvider extends ChangeNotifier {
     // Failed/blocked feeds and an empty subscription list do not prove that
     // the device is offline. Show the banner only when there is no interface.
     _isOffline = false;
-    if (!result.networkReached && subscriptionProvider!.subscriptions.isNotEmpty) {
+    if (!result.networkReached &&
+        subscriptionProvider!.subscriptions.isNotEmpty) {
       try {
         final connections = await _connectivityCheck();
-        _isOffline = connections.isNotEmpty &&
+        _isOffline =
+            connections.isNotEmpty &&
             connections.every((value) => value == ConnectivityResult.none);
       } catch (_) {
         // An unavailable connectivity plugin is unknown, not offline.
@@ -1180,8 +1183,11 @@ class FeedProvider extends ChangeNotifier {
 
     _cacheGeneration++;
     await _box.deleteAll([
-      'cachedItemsJson', 'readItemIds', 'feedErrors',
-      'feedValidators', 'feedRedirects',
+      'cachedItemsJson',
+      'readItemIds',
+      'feedErrors',
+      'feedValidators',
+      'feedRedirects',
     ]);
     _invalidateFilterCache();
     notifyListeners();

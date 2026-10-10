@@ -140,9 +140,10 @@ class FeedRefresher {
           observationEpoch: sub.notificationEpoch,
           items: existingByFeed[sub.url] ?? const <FeedItem>[],
           succeeded: false,
-          networkReached: e is FeedFetchException &&
+          networkReached:
+              e is FeedFetchException &&
               (e.kind == FeedFetchErrorKind.httpStatus ||
-               e.kind == FeedFetchErrorKind.parse),
+                  e.kind == FeedFetchErrorKind.parse),
           fresh: false,
           etag: null as String?,
           lastModified: null as String?,

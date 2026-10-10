@@ -23,8 +23,10 @@ class BackgroundFeedStore {
     try {
       final decoded = jsonDecode(raw);
       return decoded is Map<String, dynamic> &&
-              decoded['revision'] is int && decoded['config'] is Map
-          ? decoded : null;
+              decoded['revision'] is int &&
+              decoded['config'] is Map
+          ? decoded
+          : null;
     } on FormatException {
       return null;
     }
@@ -34,12 +36,16 @@ class BackgroundFeedStore {
     final result = await _file.runExclusive(() async {
       final previous = await read();
       if (jsonEncode(previous?['config']) == jsonEncode(config)) return;
-      await _file.write(jsonEncode({
-        'revision': ((previous?['revision'] as int?) ?? 0) + 1,
-        'config': config,
-      }));
+      await _file.write(
+        jsonEncode({
+          'revision': ((previous?['revision'] as int?) ?? 0) + 1,
+          'config': config,
+        }),
+      );
     });
-    if (!result.acquired) throw StateError('Background snapshot lock timed out');
+    if (!result.acquired) {
+      throw StateError('Background snapshot lock timed out');
+    }
   }
 
   /// Reject work begun before a subscription change, cache clear, or reset.
@@ -67,7 +73,10 @@ class BackgroundFeedBridge {
   Future<void> _tail = Future<void>.value();
 
   static const _subscriptionKeys = [
-    'subscriptions', 'custom_categories', 'category_icons', 'category_order',
+    'subscriptions',
+    'custom_categories',
+    'category_icons',
+    'category_order',
   ];
 
   Map<String, dynamic> _configuration() => {
@@ -76,7 +85,10 @@ class BackgroundFeedBridge {
     'feedRedirects': feeds.get('feedRedirects'),
     'syncBackground': settings.get('syncBackground', defaultValue: true),
     'offlineCacheLimit': settings.get('offlineCacheLimit', defaultValue: 50),
-    'notificationsEnabled': settings.get('notificationsEnabled', defaultValue: true),
+    'notificationsEnabled': settings.get(
+      'notificationsEnabled',
+      defaultValue: true,
+    ),
     'digestMode': settings.get('digestMode', defaultValue: 'instant'),
     'quietHoursEnabled': settings.get('quietHoursEnabled', defaultValue: true),
     'quietHoursStart': settings.get('quietHoursStart', defaultValue: 22),
@@ -89,7 +101,8 @@ class BackgroundFeedBridge {
     try {
       final snapshot = await store.read();
       final saved = snapshot?['config'];
-      if (feeds.get('subscriptions') == null && saved is Map &&
+      if (feeds.get('subscriptions') == null &&
+          saved is Map &&
           saved['subscriptions'] is String &&
           jsonDecode(saved['subscriptions'] as String) is List) {
         for (final key in _subscriptionKeys) {
@@ -127,7 +140,9 @@ class BackgroundFeedBridge {
     await _tail;
     final snapshot = await store.read();
     if (snapshot == null ||
-        jsonEncode(snapshot['config']) != jsonEncode(_configuration())) return false;
+        jsonEncode(snapshot['config']) != jsonEncode(_configuration())) {
+      return false;
+    }
     final cache = snapshot['resultCache'];
     if (cache is String && cache != feeds.get('cachedItemsJson')) {
       await feeds.put('cachedItemsJson', cache);

@@ -497,7 +497,11 @@ class SubscriptionProvider extends ChangeNotifier {
     _categoryIcons.clear();
     _categoryOrder.clear();
     await _saveSubscriptions(); // Explicit empty list distinguishes a reset.
-    await _box.deleteAll(['custom_categories', 'category_icons', 'category_order']);
+    await _box.deleteAll([
+      'custom_categories',
+      'category_icons',
+      'category_order',
+    ]);
     _loadSubscriptions();
   }
 }

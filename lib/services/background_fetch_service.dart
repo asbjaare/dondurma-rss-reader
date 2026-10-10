@@ -65,7 +65,8 @@ Future<void> runBgFetch({BackgroundFeedStore? store}) async {
     debugPrint('[BG] task started');
 
     // Delivery settings never short-circuit observation/synchronization.
-    final bool notificationsEnabled = config['notificationsEnabled'] as bool? ?? true;
+    final bool notificationsEnabled =
+        config['notificationsEnabled'] as bool? ?? true;
     final String digestMode = config['digestMode'] as String? ?? 'instant';
     final bool quietHoursEnabled = config['quietHoursEnabled'] as bool? ?? true;
     final int quietStart = config['quietHoursStart'] as int? ?? 22;
@@ -158,7 +159,9 @@ Future<void> runBgFetch({BackgroundFeedStore? store}) async {
     };
     if (freshItemsByFeed.isNotEmpty) {
       final merged = FeedCachePolicy.mergeFreshFeeds(
-        existingItems: _readBgCache(snapshot['resultCache'] ?? config['cachedItemsJson']),
+        existingItems: _readBgCache(
+          snapshot['resultCache'] ?? config['cachedItemsJson'],
+        ),
         freshItemsByFeed: freshItemsByFeed,
         subscribedFeedUrls: subscriptions.map((sub) => sub.url),
       );

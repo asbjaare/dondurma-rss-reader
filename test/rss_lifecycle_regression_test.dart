@@ -185,7 +185,9 @@ void main() {
   });
 
   setUp(() async {
-    final snapshot = File('${tempDirectory.path}/dondurma-background-sync.json');
+    final snapshot = File(
+      '${tempDirectory.path}/dondurma-background-sync.json',
+    );
     if (await snapshot.exists()) await snapshot.delete();
     await Hive.box('settings').clear();
     await Hive.box('feeds').clear();
@@ -213,58 +215,81 @@ void main() {
     }
   });
 
-  test('missing subscriptions recover from snapshot after reopening Hive', () async {
-    final subscription = FeedSubscription(
-      url: server.url('/recover.xml'), name: 'Recover', category: 'Test',
-    );
-    await _seedSubscriptions([subscription]);
-    final bridge = BackgroundFeedBridge(
-      feeds: Hive.box('feeds'), settings: Hive.box('settings'),
-    );
-    await bridge.publish();
-    await Hive.box('feeds').delete('subscriptions');
-    await Hive.close();
-    await Hive.openBox('settings');
-    await Hive.openBox('feeds');
-    await Hive.openBox('bookmarks');
-    final reopened = BackgroundFeedBridge(
-      feeds: Hive.box('feeds'), settings: Hive.box('settings'),
-    );
-    await reopened.start();
-    expect(SubscriptionProvider().subscriptions.single.url, subscription.url);
-    await reopened.dispose();
-    await bridge.dispose();
-  });
+  test(
+    'missing subscriptions recover from snapshot after reopening Hive',
+    () async {
+      final subscription = FeedSubscription(
+        url: server.url('/recover.xml'),
+        name: 'Recover',
+        category: 'Test',
+      );
+      await _seedSubscriptions([subscription]);
+      final bridge = BackgroundFeedBridge(
+        feeds: Hive.box('feeds'),
+        settings: Hive.box('settings'),
+      );
+      await bridge.publish();
+      await Hive.box('feeds').delete('subscriptions');
+      await Hive.close();
+      await Hive.openBox('settings');
+      await Hive.openBox('feeds');
+      await Hive.openBox('bookmarks');
+      final reopened = BackgroundFeedBridge(
+        feeds: Hive.box('feeds'),
+        settings: Hive.box('settings'),
+      );
+      await reopened.start();
+      expect(SubscriptionProvider().subscriptions.single.url, subscription.url);
+      await reopened.dispose();
+      await bridge.dispose();
+    },
+  );
 
-  test('intentional empty subscriptions are never restored from snapshot', () async {
-    await _seedSubscriptions([
-      FeedSubscription(url: server.url('/removed.xml'), name: 'Removed', category: 'Test'),
-    ]);
-    final bridge = BackgroundFeedBridge(
-      feeds: Hive.box('feeds'), settings: Hive.box('settings'),
-    );
-    await bridge.publish();
-    await SubscriptionProvider().factoryReset();
-    await bridge.start();
-    expect(SubscriptionProvider().subscriptions, isEmpty);
-    expect(Hive.box('feeds').get('subscriptions'), '[]');
-    await bridge.dispose();
-  });
+  test(
+    'intentional empty subscriptions are never restored from snapshot',
+    () async {
+      await _seedSubscriptions([
+        FeedSubscription(
+          url: server.url('/removed.xml'),
+          name: 'Removed',
+          category: 'Test',
+        ),
+      ]);
+      final bridge = BackgroundFeedBridge(
+        feeds: Hive.box('feeds'),
+        settings: Hive.box('settings'),
+      );
+      await bridge.publish();
+      await SubscriptionProvider().factoryReset();
+      await bridge.start();
+      expect(SubscriptionProvider().subscriptions, isEmpty);
+      expect(Hive.box('feeds').get('subscriptions'), '[]');
+      await bridge.dispose();
+    },
+  );
 
-  test('stale background cache is rejected after subscriptions change', () async {
-    final bridge = BackgroundFeedBridge(
-      feeds: Hive.box('feeds'), settings: Hive.box('settings'),
-    );
-    await bridge.publish();
-    final previous = (await bridge.store.read())!['revision'] as int;
-    await _seedSubscriptions([
-      FeedSubscription(url: server.url('/changed.xml'), name: 'Changed', category: 'Test'),
-    ]);
-    await bridge.publish();
-    expect(await bridge.store.commitCache(previous, '[]'), isFalse);
-    expect(await bridge.importCache(), isFalse);
-    await bridge.dispose();
-  });
+  test(
+    'stale background cache is rejected after subscriptions change',
+    () async {
+      final bridge = BackgroundFeedBridge(
+        feeds: Hive.box('feeds'),
+        settings: Hive.box('settings'),
+      );
+      await bridge.publish();
+      final previous = (await bridge.store.read())!['revision'] as int;
+      await _seedSubscriptions([
+        FeedSubscription(
+          url: server.url('/changed.xml'),
+          name: 'Changed',
+          category: 'Test',
+        ),
+      ]);
+      await bridge.publish();
+      expect(await bridge.store.commitCache(previous, '[]'), isFalse);
+      expect(await bridge.importCache(), isFalse);
+      await bridge.dispose();
+    },
+  );
 
   test(
     'subscription mutation schedules foreground refresh from immutable snapshot',
@@ -666,7 +691,8 @@ void main() {
 
       await Hive.box('settings').put('syncBackground', true);
       final bridge = BackgroundFeedBridge(
-        feeds: Hive.box('feeds'), settings: Hive.box('settings'),
+        feeds: Hive.box('feeds'),
+        settings: Hive.box('settings'),
       );
       await bridge.publish();
       final subscriptionsBefore = Hive.box('feeds').get('subscriptions');
@@ -680,7 +706,8 @@ void main() {
       await Hive.openBox('feeds');
       await Hive.openBox('bookmarks');
       final foregroundBridge = BackgroundFeedBridge(
-        feeds: Hive.box('feeds'), settings: Hive.box('settings'),
+        feeds: Hive.box('feeds'),
+        settings: Hive.box('settings'),
       );
       // Worker results stay outside Hive until its foreground owner imports.
       expect(Hive.box('feeds').get('cachedItemsJson'), cacheBefore);
@@ -710,7 +737,11 @@ void main() {
         // erase that response's evidence of reaching the server.
         connectivityCheck: () async => [ConnectivityResult.none],
       );
-      feed.update(SubscriptionProvider(), SettingsProvider(), BookmarkProvider());
+      feed.update(
+        SubscriptionProvider(),
+        SettingsProvider(),
+        BookmarkProvider(),
+      );
       await _waitForRefresh(feed);
       expect(feed.isOffline, isFalse);
       expect(feed.feedErrorFor(url), isNotNull);
@@ -728,7 +759,11 @@ void main() {
       ]);
       final before = Hive.box('feeds').get('subscriptions');
       final feed = FeedProvider(connectivityCheck: () async => [connection]);
-      feed.update(SubscriptionProvider(), SettingsProvider(), BookmarkProvider());
+      feed.update(
+        SubscriptionProvider(),
+        SettingsProvider(),
+        BookmarkProvider(),
+      );
       await _waitForRefresh(feed);
       expect(feed.isOffline, connection == ConnectivityResult.none);
       expect(Hive.box('feeds').get('subscriptions'), before);
@@ -969,9 +1004,11 @@ void main() {
       expect(find(ftUrl).content, isNot(contains('article body text')));
       // Persisted inside cachedItemsJson so it survives a restart.
       await _waitUntil(
-        () => _persistedItems()
-            .singleWhere((item) => item.feedUrl == ftUrl)
-            .prefetchedFullText != null,
+        () =>
+            _persistedItems()
+                .singleWhere((item) => item.feedUrl == ftUrl)
+                .prefetchedFullText !=
+            null,
       );
       expect(
         _persistedItems()

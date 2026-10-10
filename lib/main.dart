@@ -108,9 +108,11 @@ void main() async {
             backgroundCacheImporter: _backgroundFeedBridge?.importCache,
           ),
           update: (_, subscription, settings, bookmark, feed) =>
-              (feed ?? FeedProvider(
-                backgroundCacheImporter: _backgroundFeedBridge?.importCache,
-              ))
+              (feed ??
+                    FeedProvider(
+                      backgroundCacheImporter:
+                          _backgroundFeedBridge?.importCache,
+                    ))
                 ..update(subscription, settings, bookmark),
         ),
       ],

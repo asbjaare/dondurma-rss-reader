@@ -167,8 +167,9 @@ class FeedService {
       }
       final statusCode = streamed.statusCode;
       final responseHeaders = streamed.headers;
-      final bodyBytes = await streamed.stream.toBytes()
-          .timeout(const Duration(seconds: 10));
+      final bodyBytes = await streamed.stream.toBytes().timeout(
+        const Duration(seconds: 10),
+      );
 
       // A differing final URL means the feed moved — callers learn it and
       // skip the redirect round-trip on the next cycle.
