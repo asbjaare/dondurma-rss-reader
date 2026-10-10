@@ -7,6 +7,7 @@ A modern Flutter RSS/Atom feed reader with Material 3 UI, FlexColorScheme themin
 - **State Management**: `provider` package with 5 providers; `FeedProvider` wired via `ChangeNotifierProxyProvider3`
 - **Persistence**: Hive CE (`hive_ce` / `hive_ce_flutter`) with 3 boxes
 - **Routing**: GoRouter with declarative routes + onboarding redirect
+- **Storage ownership**: Only the foreground isolate opens Hive. `BackgroundFeedBridge` publishes atomic configuration snapshots and imports revision-checked worker cache results; missing subscription keys recover from the snapshot, while an explicit empty list stays empty.
 - **Background work**: `workmanager` for sync when app is closed; `home_widget` for home-screen widgets
 
 ## Providers
@@ -57,7 +58,7 @@ file_selector, package_info_plus, xml, intl, flutter_localizations
 - **Pagination**: Date-based sections (Today/Yesterday/Older), `_pageSize = 50`, resets on filter/category/search change
 - **In-App Browser**: WebView with ad blocking toggle (EasyList + AdGuard) and optional DarkReader injection
 - **Theme**: 10 FlexColorScheme schemes × 3 brightness modes (System/Light/Dark); toast motion respects system animation preference
-- **Offline Banner**: Shows when viewing cached content
+- **Offline Banner**: Shows only after feed requests fail and connectivity reports no network interface; server errors alone are feed errors
 - **Background Sync**: Foreground timer (configurable interval) + Workmanager when app is closed
 - **Full-Text Extraction**: Per-feed toggle, heuristic reader-mode scraper in isolate
 - **Keyword Filtering**: Per-feed `excludedKeywords` + global excluded keywords, regex compiled once per filter pass

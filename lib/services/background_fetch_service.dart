@@ -1,12 +1,16 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:hive_ce_flutter/hive_flutter.dart';
+
+import 'package:path_provider/path_provider.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../models/feed_item.dart';
 import '../models/feed_subscription.dart';
+import 'background_feed_store.dart';
 import 'feed_cache_policy.dart';
+import 'observed_article_persistence_io.dart';
 import 'feed_service.dart';
 import 'notification_delivery_policy.dart';
 import 'notification_service.dart';
@@ -46,37 +50,29 @@ Future<void> registerBgFetch() async {
 
 /// Fetches all subscribed feeds and fires a notification for new articles.
 ///
-/// Safe to call from both the foreground service isolate and the main isolate
-/// (Hive handles re-initialization and already-open boxes gracefully).
-Future<void> runBgFetch() async {
+/// The worker uses atomic snapshots only; it never opens foreground Hive files.
+Future<void> runBgFetch({BackgroundFeedStore? store}) async {
   try {
-    await Hive.initFlutter();
-    await Future.wait([Hive.openBox('settings'), Hive.openBox('feeds')]);
+    final directory = await getApplicationDocumentsDirectory();
+    store ??= BackgroundFeedStore(directory.path);
+    final snapshot = await store.read();
+    if (snapshot == null || snapshot['config'] is! Map) return;
+    final config = Map<String, dynamic>.from(snapshot['config'] as Map);
+    if (config['syncBackground'] != true) return;
+    final revision = snapshot['revision'] as int;
     await NotificationService.instance.init();
-
-    final settingsBox = Hive.box('settings');
-    final feedsBox = Hive.box('feeds');
 
     debugPrint('[BG] task started');
 
     // Delivery settings never short-circuit observation/synchronization.
-    final bool notificationsEnabled = settingsBox.get(
-      'notificationsEnabled',
-      defaultValue: true,
-    );
-    final String digestMode = settingsBox.get(
-      'digestMode',
-      defaultValue: 'instant',
-    );
-    final bool quietHoursEnabled = settingsBox.get(
-      'quietHoursEnabled',
-      defaultValue: true,
-    );
-    final int quietStart = settingsBox.get('quietHoursStart', defaultValue: 22);
-    final int quietEnd = settingsBox.get('quietHoursEnd', defaultValue: 7);
+    final bool notificationsEnabled = config['notificationsEnabled'] as bool? ?? true;
+    final String digestMode = config['digestMode'] as String? ?? 'instant';
+    final bool quietHoursEnabled = config['quietHoursEnabled'] as bool? ?? true;
+    final int quietStart = config['quietHoursStart'] as int? ?? 22;
+    final int quietEnd = config['quietHoursEnd'] as int? ?? 7;
 
     // Read subscriptions
-    final String? subsData = feedsBox.get('subscriptions');
+    final String? subsData = config['subscriptions'] as String?;
     if (subsData == null) return;
     final List<dynamic> subsList = jsonDecode(subsData);
     final subscriptions = subsList
@@ -92,7 +88,7 @@ Future<void> runBgFetch() async {
 
     // Fetch all feeds — at learned redirect URLs when the foreground learned
     // one, so background passes skip the 301 hop too.
-    final rawRedirects = feedsBox.get('feedRedirects');
+    final rawRedirects = config['feedRedirects'];
     final redirects = <String, String>{};
     if (rawRedirects is String && rawRedirects.isNotEmpty) {
       try {
@@ -136,7 +132,11 @@ Future<void> runBgFetch() async {
     final allItems = results.expand((result) => result.items).toList();
     debugPrint('[BG] fetched ${allItems.length} items total');
 
-    final observedStore = ObservedArticleStore.forBox(feedsBox);
+    final observedStore = ObservedArticleStore(
+      FileObservedArticlePersistence(
+        stateFile: File('${directory.path}/feeds.hive.observed-articles.json'),
+      ),
+    );
     final claimedItems = <FeedItem>[];
     for (final result in results) {
       if (!result.succeeded) continue;
@@ -158,18 +158,28 @@ Future<void> runBgFetch() async {
     };
     if (freshItemsByFeed.isNotEmpty) {
       final merged = FeedCachePolicy.mergeFreshFeeds(
-        existingItems: _readBgCache(feedsBox),
+        existingItems: _readBgCache(snapshot['resultCache'] ?? config['cachedItemsJson']),
         freshItemsByFeed: freshItemsByFeed,
         subscribedFeedUrls: subscriptions.map((sub) => sub.url),
       );
-      final persisted = await _persistBgCache(
-        feedsBox,
-        settingsBox,
-        merged,
-        subscriptions.map((sub) => sub.url),
-      );
-      await WidgetUpdateService.updateFeedWidgets(persisted);
+      final limit = config['offlineCacheLimit'] as int? ?? 50;
+      if (limit > 0) {
+        final persisted = FeedCachePolicy.fairTrim(
+          items: merged,
+          subscribedFeedUrls: subscriptions.map((sub) => sub.url),
+          limit: limit,
+        );
+        final committed = await store.commitCache(
+          revision,
+          jsonEncode(persisted.map((item) => item.toJson()).toList()),
+        );
+        if (!committed) return; // Configuration changed while fetching.
+        await WidgetUpdateService.updateFeedWidgets(persisted);
+      }
     }
+
+    final currentSnapshot = await store.read();
+    if (currentSnapshot?['revision'] != revision) return;
 
     final newItems = NotificationDeliveryPolicy.eligibleItems(
       claimedItems: claimedItems,
@@ -204,30 +214,7 @@ Future<void> runBgFetch() async {
   }
 }
 
-/// Writes the freshly fetched items into the `'feeds'` box `cachedItemsJson`
-/// key, sorted newest-first and capped to the user's offline cache limit, using
-/// the same format [FeedProvider] reads on startup.
-Future<List<FeedItem>> _persistBgCache(
-  Box feedsBox,
-  Box settingsBox,
-  List<FeedItem> items,
-  Iterable<String> subscribedFeedUrls,
-) async {
-  final int limit = settingsBox.get('offlineCacheLimit', defaultValue: 50);
-  if (limit == 0) return const []; // offline cache disabled
-
-  final selected = FeedCachePolicy.fairTrim(
-    items: items,
-    subscribedFeedUrls: subscribedFeedUrls,
-    limit: limit,
-  );
-  final maps = selected.map((e) => e.toJson()).toList();
-  await feedsBox.put('cachedItemsJson', jsonEncode(maps));
-  return selected;
-}
-
-List<FeedItem> _readBgCache(Box feedsBox) {
-  final raw = feedsBox.get('cachedItemsJson');
+List<FeedItem> _readBgCache(Object? raw) {
   if (raw is! String || raw.isEmpty) return const [];
   try {
     final decoded = jsonDecode(raw) as List<dynamic>;

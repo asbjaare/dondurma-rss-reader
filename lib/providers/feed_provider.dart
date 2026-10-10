@@ -43,6 +43,8 @@ class FeedProvider extends ChangeNotifier {
   late final ObservedArticleStore _observedArticleStore;
   late final FeedRefresher _refresher;
   late final Future<void> _initialization;
+  final Future<bool> Function()? _backgroundCacheImporter;
+  final Future<List<ConnectivityResult>> Function() _connectivityCheck;
 
   List<FeedItem> _items = [];
   String? _selectedCategory;
@@ -184,7 +186,12 @@ class FeedProvider extends ChangeNotifier {
   // Initialization & dependency updates
   // ---------------------------------------------------------------------------
 
-  FeedProvider({ObservedArticleStore? observedArticleStore}) {
+  FeedProvider({
+    ObservedArticleStore? observedArticleStore,
+    Future<bool> Function()? backgroundCacheImporter,
+    Future<List<ConnectivityResult>> Function()? connectivityCheck,
+  }) : _backgroundCacheImporter = backgroundCacheImporter,
+       _connectivityCheck = connectivityCheck ?? Connectivity().checkConnectivity {
     _observedArticleStore =
         observedArticleStore ?? ObservedArticleStore.forBox(_box);
     _refresher = FeedRefresher(
@@ -843,6 +850,14 @@ class FeedProvider extends ChangeNotifier {
   /// owns the `_isSyncing` guard and trailing-refresh coalescing.
   Future<void> _performRefresh() async {
     if (_disposed) return;
+    try {
+      if (await _backgroundCacheImporter?.call() == true) {
+        await _loadState();
+      }
+    } catch (error) {
+      debugPrint('Background cache import failed: $error');
+    }
+    if (_disposed) return;
     _isLoading = true;
     notifyListeners();
 
@@ -860,7 +875,18 @@ class FeedProvider extends ChangeNotifier {
     _saveFeedRedirects(result.redirects);
     _updateFeedErrors(result.feedErrors, result.unprovenUrls);
     _items = result.items;
-    _isOffline = !result.online;
+    // Failed/blocked feeds and an empty subscription list do not prove that
+    // the device is offline. Show the banner only when there is no interface.
+    _isOffline = false;
+    if (!result.networkReached && subscriptionProvider!.subscriptions.isNotEmpty) {
+      try {
+        final connections = await _connectivityCheck();
+        _isOffline = connections.isNotEmpty &&
+            connections.every((value) => value == ConnectivityResult.none);
+      } catch (_) {
+        // An unavailable connectivity plugin is unknown, not offline.
+      }
+    }
     _isLoading = false;
     _invalidateFilterCache();
     if (!_disposed) notifyListeners();
@@ -1153,7 +1179,10 @@ class FeedProvider extends ChangeNotifier {
     _lastNotificationTime = null;
 
     _cacheGeneration++;
-    await _box.clear();
+    await _box.deleteAll([
+      'cachedItemsJson', 'readItemIds', 'feedErrors',
+      'feedValidators', 'feedRedirects',
+    ]);
     _invalidateFilterCache();
     notifyListeners();
   }

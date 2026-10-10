@@ -19,6 +19,9 @@ typedef FeedRefreshResult = ({
   /// At least one feed reached the network (HTTP 200 or 304).
   bool online,
 
+  /// An HTTP response proves connectivity even when its status/body is bad.
+  bool networkReached,
+
   /// At least one feed returned an HTTP 200 body — worth persisting.
   bool anyFreshBody,
 
@@ -118,6 +121,7 @@ class FeedRefresher {
               ? result.items
               : result.items.map((i) => i.copyWith(feedUrl: sub.url)).toList(),
           succeeded: true,
+          networkReached: true,
           fresh: !result.notModified,
           etag: result.etag,
           lastModified: result.lastModified,
@@ -136,6 +140,9 @@ class FeedRefresher {
           observationEpoch: sub.notificationEpoch,
           items: existingByFeed[sub.url] ?? const <FeedItem>[],
           succeeded: false,
+          networkReached: e is FeedFetchException &&
+              (e.kind == FeedFetchErrorKind.httpStatus ||
+               e.kind == FeedFetchErrorKind.parse),
           fresh: false,
           etag: null as String?,
           lastModified: null as String?,
@@ -267,6 +274,7 @@ class FeedRefresher {
       items: items,
       claimedItems: claimedItems,
       online: online,
+      networkReached: outcomes.any((outcome) => outcome.networkReached),
       anyFreshBody: anyFreshBody,
       validators: newValidators,
       feedErrors: feedErrors,

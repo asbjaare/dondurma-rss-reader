@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flex_color_scheme/flex_color_scheme.dart' show FlexScheme;
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -18,6 +19,7 @@ import 'theme/app_theme.dart';
 import 'package:flutter/gestures.dart';
 import 'router/app_router.dart';
 import 'services/background_fetch_service.dart';
+import 'services/background_feed_store.dart';
 import 'services/notification_service.dart';
 import 'services/widget_update_service.dart';
 import 'models/feed_item.dart';
@@ -41,6 +43,8 @@ class PremiumScrollBehavior extends MaterialScrollBehavior {
   };
 }
 
+BackgroundFeedBridge? _backgroundFeedBridge;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   WidgetUpdateService.initialize();
@@ -49,6 +53,13 @@ void main() async {
   await Hive.openBox('feeds');
   await Hive.openBox('bookmarks');
   await _migrateHiveBoxes();
+  if (!kIsWeb) {
+    _backgroundFeedBridge = BackgroundFeedBridge(
+      feeds: Hive.box('feeds'),
+      settings: Hive.box('settings'),
+    );
+    await _backgroundFeedBridge!.start();
+  }
   await NotificationService.instance.init();
 
   NotificationService.instance.onArticleTapped.listen((payload) {
@@ -93,9 +104,13 @@ void main() async {
           BookmarkProvider,
           FeedProvider
         >(
-          create: (_) => FeedProvider(),
+          create: (_) => FeedProvider(
+            backgroundCacheImporter: _backgroundFeedBridge?.importCache,
+          ),
           update: (_, subscription, settings, bookmark, feed) =>
-              (feed ?? FeedProvider())
+              (feed ?? FeedProvider(
+                backgroundCacheImporter: _backgroundFeedBridge?.importCache,
+              ))
                 ..update(subscription, settings, bookmark),
         ),
       ],

@@ -58,7 +58,7 @@ class SubscriptionProvider extends ChangeNotifier {
   List<String> _categoryOrder = [];
 
   /// All current feed subscriptions.
-  List<FeedSubscription> get subscriptions => _subscriptions;
+  List<FeedSubscription> get subscriptions => List.unmodifiable(_subscriptions);
 
   /// The union of categories derived from subscriptions and standalone
   /// custom (possibly empty) categories.
@@ -147,7 +147,6 @@ class SubscriptionProvider extends ChangeNotifier {
           .toList();
     } else {
       _subscriptions = [];
-      _saveSubscriptions();
     }
 
     // Ensure all categories have an assigned icon map
@@ -491,13 +490,14 @@ class SubscriptionProvider extends ChangeNotifier {
   }
 
   /// Clears all subscriptions, custom categories, and category icons,
-  /// then reloads the default state (sample feeds).
+  /// without deleting caches or read state owned by FeedProvider.
   Future<void> factoryReset() async {
     _subscriptions.clear();
     _customCategories.clear();
     _categoryIcons.clear();
-    await _box.clear();
-    // This will load default sample feeds since the box is now empty.
+    _categoryOrder.clear();
+    await _saveSubscriptions(); // Explicit empty list distinguishes a reset.
+    await _box.deleteAll(['custom_categories', 'category_icons', 'category_order']);
     _loadSubscriptions();
   }
 }

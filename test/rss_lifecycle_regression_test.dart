@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:ice_cream_rss_reader/models/feed_item.dart';
 import 'package:ice_cream_rss_reader/models/feed_subscription.dart';
 import 'package:ice_cream_rss_reader/providers/bookmark_provider.dart';
@@ -13,6 +14,7 @@ import 'package:ice_cream_rss_reader/providers/feed_provider.dart';
 import 'package:ice_cream_rss_reader/providers/settings_provider.dart';
 import 'package:ice_cream_rss_reader/providers/subscription_provider.dart';
 import 'package:ice_cream_rss_reader/services/background_fetch_service.dart';
+import 'package:ice_cream_rss_reader/services/background_feed_store.dart';
 import 'package:ice_cream_rss_reader/services/feed_cache_policy.dart';
 
 typedef RequestHandler = FutureOr<void> Function(HttpRequest request);
@@ -183,6 +185,8 @@ void main() {
   });
 
   setUp(() async {
+    final snapshot = File('${tempDirectory.path}/dondurma-background-sync.json');
+    if (await snapshot.exists()) await snapshot.delete();
     await Hive.box('settings').clear();
     await Hive.box('feeds').clear();
     await Hive.box('bookmarks').clear();
@@ -207,6 +211,59 @@ void main() {
     if (await tempDirectory.exists()) {
       await tempDirectory.delete(recursive: true);
     }
+  });
+
+  test('missing subscriptions recover from snapshot after reopening Hive', () async {
+    final subscription = FeedSubscription(
+      url: server.url('/recover.xml'), name: 'Recover', category: 'Test',
+    );
+    await _seedSubscriptions([subscription]);
+    final bridge = BackgroundFeedBridge(
+      feeds: Hive.box('feeds'), settings: Hive.box('settings'),
+    );
+    await bridge.publish();
+    await Hive.box('feeds').delete('subscriptions');
+    await Hive.close();
+    await Hive.openBox('settings');
+    await Hive.openBox('feeds');
+    await Hive.openBox('bookmarks');
+    final reopened = BackgroundFeedBridge(
+      feeds: Hive.box('feeds'), settings: Hive.box('settings'),
+    );
+    await reopened.start();
+    expect(SubscriptionProvider().subscriptions.single.url, subscription.url);
+    await reopened.dispose();
+    await bridge.dispose();
+  });
+
+  test('intentional empty subscriptions are never restored from snapshot', () async {
+    await _seedSubscriptions([
+      FeedSubscription(url: server.url('/removed.xml'), name: 'Removed', category: 'Test'),
+    ]);
+    final bridge = BackgroundFeedBridge(
+      feeds: Hive.box('feeds'), settings: Hive.box('settings'),
+    );
+    await bridge.publish();
+    await SubscriptionProvider().factoryReset();
+    await bridge.start();
+    expect(SubscriptionProvider().subscriptions, isEmpty);
+    expect(Hive.box('feeds').get('subscriptions'), '[]');
+    await bridge.dispose();
+  });
+
+  test('stale background cache is rejected after subscriptions change', () async {
+    final bridge = BackgroundFeedBridge(
+      feeds: Hive.box('feeds'), settings: Hive.box('settings'),
+    );
+    await bridge.publish();
+    final previous = (await bridge.store.read())!['revision'] as int;
+    await _seedSubscriptions([
+      FeedSubscription(url: server.url('/changed.xml'), name: 'Changed', category: 'Test'),
+    ]);
+    await bridge.publish();
+    expect(await bridge.store.commitCache(previous, '[]'), isFalse);
+    expect(await bridge.importCache(), isFalse);
+    await bridge.dispose();
   });
 
   test(
@@ -607,7 +664,29 @@ void main() {
       server.handlers['/background-c.xml'] = (request) =>
           _respond200(request, _rss('C', ['c-new']));
 
-      await runBgFetch();
+      await Hive.box('settings').put('syncBackground', true);
+      final bridge = BackgroundFeedBridge(
+        feeds: Hive.box('feeds'), settings: Hive.box('settings'),
+      );
+      await bridge.publish();
+      final subscriptionsBefore = Hive.box('feeds').get('subscriptions');
+      final cacheBefore = Hive.box('feeds').get('cachedItemsJson');
+      await bridge.dispose();
+      await Hive.close();
+      await runBgFetch(store: bridge.store);
+      expect(Hive.isBoxOpen('feeds'), isFalse);
+      expect(Hive.isBoxOpen('settings'), isFalse);
+      await Hive.openBox('settings');
+      await Hive.openBox('feeds');
+      await Hive.openBox('bookmarks');
+      final foregroundBridge = BackgroundFeedBridge(
+        feeds: Hive.box('feeds'), settings: Hive.box('settings'),
+      );
+      // Worker results stay outside Hive until its foreground owner imports.
+      expect(Hive.box('feeds').get('cachedItemsJson'), cacheBefore);
+      expect(Hive.box('feeds').get('subscriptions'), subscriptionsBefore);
+      expect(await foregroundBridge.importCache(), isTrue);
+      await foregroundBridge.dispose();
 
       final ids = _persistedItems().map((item) => item.id).toSet();
       expect(ids, containsAll(<String>['a-new', 'b-old', 'c-new']));
@@ -615,6 +694,73 @@ void main() {
       expect(ids, isNot(contains('c-old')));
     },
   );
+
+  for (final status in [HttpStatus.forbidden, HttpStatus.internalServerError]) {
+    test('HTTP $status is a feed error, not an offline device', () async {
+      final url = server.url('/failed-$status.xml');
+      server.handlers['/failed-$status.xml'] = (request) async {
+        request.response.statusCode = status;
+        await request.response.close();
+      };
+      await _seedSubscriptions([
+        FeedSubscription(url: url, name: 'Failure', category: 'Test'),
+      ]);
+      final feed = FeedProvider(
+        // Even a connection disappearing just after an HTTP response cannot
+        // erase that response's evidence of reaching the server.
+        connectivityCheck: () async => [ConnectivityResult.none],
+      );
+      feed.update(SubscriptionProvider(), SettingsProvider(), BookmarkProvider());
+      await _waitForRefresh(feed);
+      expect(feed.isOffline, isFalse);
+      expect(feed.feedErrorFor(url), isNotNull);
+      feed.dispose();
+    });
+  }
+
+  for (final connection in [ConnectivityResult.wifi, ConnectivityResult.none]) {
+    test('unreachable feed with $connection keeps subscriptions', () async {
+      final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final url = 'http://127.0.0.1:${socket.port}/unreachable.xml';
+      await socket.close();
+      await _seedSubscriptions([
+        FeedSubscription(url: url, name: 'Unreachable', category: 'Test'),
+      ]);
+      final before = Hive.box('feeds').get('subscriptions');
+      final feed = FeedProvider(connectivityCheck: () async => [connection]);
+      feed.update(SubscriptionProvider(), SettingsProvider(), BookmarkProvider());
+      await _waitForRefresh(feed);
+      expect(feed.isOffline, connection == ConnectivityResult.none);
+      expect(Hive.box('feeds').get('subscriptions'), before);
+      feed.dispose();
+    });
+  }
+
+  test('no subscriptions never produces an offline banner', () async {
+    final feed = FeedProvider(
+      connectivityCheck: () async => [ConnectivityResult.none],
+    );
+    feed.update(SubscriptionProvider(), SettingsProvider(), BookmarkProvider());
+    await _waitForRefresh(feed);
+    expect(feed.isOffline, isFalse);
+    feed.dispose();
+  });
+
+  test('feed reset preserves subscriptions and folder metadata', () async {
+    final url = server.url('/preserved.xml');
+    await _seedSubscriptions([
+      FeedSubscription(url: url, name: 'Keep me', category: 'Test'),
+    ]);
+    await Hive.box('feeds').put('custom_categories', '["Empty folder"]');
+    await Hive.box('feeds').put('category_order', '["Test","Empty folder"]');
+    final before = Hive.box('feeds').get('subscriptions');
+    final feed = FeedProvider();
+    await feed.factoryReset();
+    expect(Hive.box('feeds').get('subscriptions'), before);
+    expect(Hive.box('feeds').get('custom_categories'), '["Empty folder"]');
+    expect(Hive.box('feeds').get('category_order'), '["Test","Empty folder"]');
+    feed.dispose();
+  });
 
   test('restart without network refresh restores persisted articles', () async {
     final url = server.url('/restart.xml');

@@ -167,7 +167,8 @@ class FeedService {
       }
       final statusCode = streamed.statusCode;
       final responseHeaders = streamed.headers;
-      final bodyBytes = await streamed.stream.toBytes();
+      final bodyBytes = await streamed.stream.toBytes()
+          .timeout(const Duration(seconds: 10));
 
       // A differing final URL means the feed moved — callers learn it and
       // skip the redirect round-trip on the next cycle.
@@ -193,11 +194,19 @@ class FeedService {
 
       // Decode + XML parse + per-item HTML parse in a background isolate —
       // with many feeds this work caused jank on the main thread during sync.
-      final items = await compute(parseFeedBody, (
-        bodyBytes: bodyBytes,
-        category: category,
-        url: url,
-      ));
+      final List<FeedItem> items;
+      try {
+        items = await compute(parseFeedBody, (
+          bodyBytes: bodyBytes,
+          category: category,
+          url: url,
+        ));
+      } catch (error) {
+        throw FeedFetchException(
+          FeedFetchErrorKind.parse,
+          'Could not parse feed: $error',
+        );
+      }
       return FeedFetchResult(
         items: items,
         etag: newEtag,
