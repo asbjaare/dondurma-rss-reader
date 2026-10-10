@@ -63,6 +63,11 @@ class FeedProvider extends ChangeNotifier {
   bool _isLoadingMore = false;
 
   Timer? _cacheTimer;
+  int? _lastCacheIntervalSeconds;
+  bool? _lastSyncBackground;
+  int? _lastOfflineCacheLimit;
+  bool _autoRefreshPaused = false;
+  bool _cacheNeedsSave = false;
 
   /// Tracks whether the first load has completed, so we don't fire
   /// notifications on initial startup.
@@ -224,9 +229,14 @@ class FeedProvider extends ChangeNotifier {
   ) {
     final bool isFirstUpdate = subscriptionProvider == null;
 
-    // Snapshot sync settings before overwrite to decide if timer needs reset.
-    final int prevInterval = settingsProvider?.cacheIntervalSeconds ?? -1;
-    final bool prevSync = settingsProvider?.syncBackground ?? false;
+    // Compare saved values: the SettingsProvider instance mutates in place.
+    final timerSettingsChanged =
+        _lastCacheIntervalSeconds != set.cacheIntervalSeconds ||
+        _lastSyncBackground != set.syncBackground;
+    final cacheLimitChanged = _lastOfflineCacheLimit != set.offlineCacheLimit;
+    _lastCacheIntervalSeconds = set.cacheIntervalSeconds;
+    _lastSyncBackground = set.syncBackground;
+    _lastOfflineCacheLimit = set.offlineCacheLimit;
 
     subscriptionProvider = sub;
     settingsProvider = set;
@@ -261,6 +271,14 @@ class FeedProvider extends ChangeNotifier {
     );
     _knownSubscriptionUrls = Set.unmodifiable(currentUrls);
 
+    if (cacheLimitChanged) {
+      final generation = _cacheGeneration;
+      _initialization.then((_) async {
+        if (_disposed || generation != _cacheGeneration) return;
+        await _saveCachedItems(generation: generation);
+      }).ignore();
+    }
+
     if (isFirstUpdate) {
       refreshAll();
       _manageCacheTimer();
@@ -275,9 +293,6 @@ class FeedProvider extends ChangeNotifier {
 
     // Only recreate the background sync timer when interval or toggle changes.
     // Previously this always fired, resetting the countdown on every tap.
-    final bool timerSettingsChanged =
-        prevInterval != set.cacheIntervalSeconds ||
-        prevSync != set.syncBackground;
     if (timerSettingsChanged) {
       _manageCacheTimer();
     }
@@ -306,7 +321,7 @@ class FeedProvider extends ChangeNotifier {
   void _manageCacheTimer() {
     _cacheTimer?.cancel();
     _cacheTimer = null;
-    if (settingsProvider == null) return;
+    if (settingsProvider == null || _autoRefreshPaused || _disposed) return;
     final interval = settingsProvider!.cacheIntervalSeconds;
     final syncEnabled = settingsProvider!.syncBackground;
 
@@ -329,6 +344,7 @@ class FeedProvider extends ChangeNotifier {
   /// draining battery/data) while the isolate is still alive but the user is
   /// away — WorkManager handles fetching in the background instead.
   void pauseAutoRefresh() {
+    _autoRefreshPaused = true;
     _cacheTimer?.cancel();
     _cacheTimer = null;
   }
@@ -336,6 +352,7 @@ class FeedProvider extends ChangeNotifier {
   /// Restarts the foreground auto-refresh timer (subject to the user's sync
   /// settings) when the app returns to the foreground.
   void resumeAutoRefresh() {
+    _autoRefreshPaused = false;
     _manageCacheTimer();
   }
 
@@ -859,6 +876,7 @@ class FeedProvider extends ChangeNotifier {
       debugPrint('Background cache import failed: $error');
     }
     if (_disposed) return;
+    final cacheGeneration = _cacheGeneration;
     _isLoading = true;
     notifyListeners();
 
@@ -901,16 +919,23 @@ class FeedProvider extends ChangeNotifier {
     }
     _hasLoadedOnce = true;
 
-    // Only persist a new cache snapshot when a feed actually returned new data.
-    if (result.anyFreshBody) {
-      await _saveCachedItems();
+    // Save fresh data, or refill a cleared cache after a successful 304.
+    if (cacheGeneration == _cacheGeneration &&
+        (result.anyFreshBody || (result.online && _cacheNeedsSave))) {
+      await _saveCachedItems(generation: cacheGeneration);
     }
 
     stopwatch.stop();
     _lastSyncDuration = stopwatch.elapsed;
     // Stamp only when a feed actually reached the network — an all-offline
     // pass must not look like a real sync to the resume/periodic gates.
-    if (result.online) _lastSyncTime = DateTime.now();
+    if (result.online) {
+      _lastSyncTime = DateTime.now();
+      // Anchor the next tick to completion. Otherwise a fetch taking even a
+      // fraction of a second makes the next periodic tick look too early,
+      // and the throttle skips it until twice the selected interval.
+      _manageCacheTimer();
+    }
     // Notify debug screen that sync state + timestamps have updated.
     if (!_disposed) notifyListeners();
 
@@ -920,7 +945,9 @@ class FeedProvider extends ChangeNotifier {
 
     // Offline-first: fetch article bodies for full-text feeds so they read
     // without a network. Runs after the refresh settles — never blocks it.
-    if (result.online) _prefetchFullText().ignore();
+    if (result.online && cacheGeneration == _cacheGeneration) {
+      _prefetchFullText().ignore();
+    }
   }
 
   /// Whether a full-text prefetch pass is already in flight.
@@ -956,6 +983,7 @@ class FeedProvider extends ChangeNotifier {
     if (subs == null || subs.isEmpty) return;
 
     _isPrefetching = true;
+    final generation = _cacheGeneration;
     try {
       final extraction = FullTextExtractionService.instance;
       // _items is date-sorted newest-first, so take() picks the latest.
@@ -982,7 +1010,9 @@ class FeedProvider extends ChangeNotifier {
           await semaphore.acquire();
           try {
             final html = await extraction.extractFullText(item.link);
-            if (html == null) return;
+            if (html == null || _disposed || generation != _cacheGeneration) {
+              return;
+            }
             final index = _items.indexWhere(
               (e) => e.id == item.id && e.feedUrl == item.feedUrl,
             );
@@ -1001,12 +1031,12 @@ class FeedProvider extends ChangeNotifier {
         }),
       );
 
-      if (changed) {
+      if (changed && generation == _cacheGeneration) {
         if (!_disposed) {
           _invalidateFilterCache();
           notifyListeners();
         }
-        await _saveCachedItems();
+        await _saveCachedItems(generation: generation);
       }
     } finally {
       _isPrefetching = false;
@@ -1119,19 +1149,31 @@ class FeedProvider extends ChangeNotifier {
   /// its stale snapshot after the delete.
   int _cacheGeneration = 0;
 
-  Future<void> _saveCachedItems() {
-    final run = _saveChain.then((_) => _writeCachedItems());
+  Future<void> _saveCachedItems({int? generation}) {
+    final requestedGeneration = generation ?? _cacheGeneration;
+    final run = _saveChain.then((_) => _writeCachedItems(requestedGeneration));
     // Keep the chain usable after a failed write instead of poisoning it.
     _saveChain = run.catchError((_) {});
     return run;
   }
 
-  Future<void> _writeCachedItems() async {
-    if (settingsProvider == null) return;
+  Future<void> _writeCachedItems(int generation) async {
+    if (_disposed ||
+        settingsProvider == null ||
+        generation != _cacheGeneration) {
+      return;
+    }
     final int limit = settingsProvider!.offlineCacheLimit;
 
     // offlineCacheLimit == 0 means "no offline cache"
-    if (limit == 0) return;
+    if (limit <= 0) {
+      _cachedItemIds.clear();
+      await _box.delete('cachedItemsJson');
+      _cacheNeedsSave = false;
+      if (!_disposed) notifyListeners();
+      return;
+    }
+    if (_items.isEmpty && !_box.containsKey('cachedItemsJson')) return;
 
     final subscriptions = subscriptionProvider;
     if (subscriptions == null) return;
@@ -1140,24 +1182,27 @@ class FeedProvider extends ChangeNotifier {
       subscribedFeedUrls: subscriptions.subscriptions.map((sub) => sub.url),
       limit: limit,
     );
-    _cachedItemIds = itemsToCache.map((e) => e.id).toSet();
-    // No notifyListeners() here — cachedItemIds is only used for badge display
-    // and the next normal rebuild will pick it up, avoiding an unnecessary
-    // full widget tree rebuild during a background write.
 
     // Encode JSON in a background isolate — avoids blocking scroll/animation
     // while serializing potentially hundreds of items.
-    final generation = _cacheGeneration;
     final maps = itemsToCache.map((e) => e.toJson()).toList();
     final String encodedData = await compute(_encodeCachedItems, maps);
     // A reset landed while encoding — dropping the write preserves the wipe.
     if (generation != _cacheGeneration) return;
     await _box.put('cachedItemsJson', encodedData);
+    if (generation != _cacheGeneration || _disposed) return;
+    _cachedItemIds = itemsToCache.map((e) => e.id).toSet();
+    _cacheNeedsSave = false;
+    notifyListeners();
   }
 
   /// Clears all cached offline articles.
   Future<void> clearCache() async {
     _cacheGeneration++;
+    _cacheNeedsSave = true;
+    _cachedItemIds.clear();
+    await _initialization;
+    await _saveChain;
     _cachedItemIds.clear();
     await _box.delete('cachedItemsJson');
     notifyListeners();
@@ -1165,6 +1210,7 @@ class FeedProvider extends ChangeNotifier {
 
   /// Clears all feed data, caches, and read states, resetting to default.
   Future<void> factoryReset() async {
+    await _initialization;
     _items.clear();
     _selectedCategory = null;
     _selectedFeedUrl = null;
@@ -1182,6 +1228,7 @@ class FeedProvider extends ChangeNotifier {
     _lastNotificationTime = null;
 
     _cacheGeneration++;
+    await _saveChain;
     await _box.deleteAll([
       'cachedItemsJson',
       'readItemIds',

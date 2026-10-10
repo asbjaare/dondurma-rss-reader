@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,6 +17,32 @@ import 'package:ice_cream_rss_reader/providers/subscription_provider.dart';
 import 'package:ice_cream_rss_reader/services/background_fetch_service.dart';
 import 'package:ice_cream_rss_reader/services/background_feed_store.dart';
 import 'package:ice_cream_rss_reader/services/feed_cache_policy.dart';
+
+class _CountingFeedProvider extends FeedProvider {
+  int refreshCount = 0;
+
+  @override
+  Future<void> refreshAll() async {
+    refreshCount++;
+  }
+}
+
+class _TimerSettingsProvider extends SettingsProvider {
+  int interval = 30;
+  bool enabled = true;
+
+  @override
+  int get cacheIntervalSeconds => interval;
+
+  @override
+  bool get syncBackground => enabled;
+
+  void change({int? interval, bool? enabled}) {
+    this.interval = interval ?? this.interval;
+    this.enabled = enabled ?? this.enabled;
+    notifyListeners();
+  }
+}
 
 typedef RequestHandler = FutureOr<void> Function(HttpRequest request);
 
@@ -770,6 +797,165 @@ void main() {
       feed.dispose();
     });
   }
+
+  test('cache limit changes apply without another HTTP body', () async {
+    final aUrl = server.url('/limit-a.xml');
+    final bUrl = server.url('/limit-b.xml');
+    await _seedSubscriptions([
+      FeedSubscription(url: aUrl, name: 'A', category: 'Test'),
+      FeedSubscription(url: bUrl, name: 'B', category: 'Test'),
+    ]);
+    await Hive.box('settings').put('offlineCacheLimit', 100);
+    server.handlers['/limit-a.xml'] = (request) =>
+        _respond200(request, _rss('A', List.generate(40, (i) => 'a-$i')));
+    server.handlers['/limit-b.xml'] = (request) =>
+        _respond200(request, _rss('B', List.generate(40, (i) => 'b-$i')));
+    final providers = _providers();
+    void update() => providers.feed.update(
+      providers.subscriptions,
+      providers.settings,
+      providers.bookmarks,
+    );
+    providers.settings.addListener(update);
+    await _waitForRefresh(providers.feed);
+    expect(_persistedItems(), hasLength(80));
+    final hits = Map<String, int>.of(server.counts);
+
+    await providers.settings.setOfflineCacheLimit(50);
+    await _waitUntil(() => _persistedItems().length == 50);
+    expect(providers.feed.cachedItemIds, hasLength(50));
+    expect(providers.feed.items, hasLength(80));
+    await providers.settings.setOfflineCacheLimit(100);
+    await _waitUntil(() => _persistedItems().length == 80);
+    await providers.settings.setOfflineCacheLimit(0);
+    await _waitUntil(() => !Hive.box('feeds').containsKey('cachedItemsJson'));
+    expect(providers.feed.cachedItemIds, isEmpty);
+    expect(providers.feed.items, hasLength(80));
+    await providers.settings.setOfflineCacheLimit(50);
+    await _waitUntil(() => _persistedItems().length == 50);
+    expect(server.counts, hits);
+    providers.settings.removeListener(update);
+    providers.feed.dispose();
+  });
+
+  test('None removes a previous session cache during startup', () async {
+    final url = server.url('/disabled-cache.xml');
+    await _seedSubscriptions([
+      FeedSubscription(url: url, name: 'Disabled', category: 'Test'),
+    ]);
+    await _seedCache([_item(url, 'old-offline')]);
+    await Hive.box('settings').put('offlineCacheLimit', 0);
+    server.handlers['/disabled-cache.xml'] = (request) =>
+        _respond200(request, _rss('Disabled', ['new-live']));
+    final providers = _providers();
+    await _waitForRefresh(providers.feed);
+    expect(Hive.box('feeds').containsKey('cachedItemsJson'), isFalse);
+    expect(providers.feed.cachedItemIds, isEmpty);
+    expect(providers.feed.items.map((item) => item.id), contains('new-live'));
+    providers.feed.dispose();
+  });
+
+  test(
+    'clear survives an in-flight refresh and next 304 can refill cache',
+    () async {
+      final url = server.url('/clear-cache.xml');
+      await _seedSubscriptions([
+        FeedSubscription(url: url, name: 'Clear', category: 'Test'),
+      ]);
+      final body = _rss('Clear', ['article']);
+      server.handlers['/clear-cache.xml'] = (request) =>
+          _respondConditional(request, body);
+      final providers = _providers();
+      await _waitForRefresh(providers.feed);
+      expect(_persistedItems(), hasLength(1));
+      final reached = Completer<void>();
+      final release = Completer<void>();
+      server.handlers['/clear-cache.xml'] = (request) async {
+        reached.complete();
+        await release.future;
+        await _respond200(request, body, etag: '"v1"');
+      };
+      final refresh = providers.feed.refreshAll();
+      await reached.future;
+      await providers.feed.clearCache();
+      release.complete();
+      await refresh;
+      expect(Hive.box('feeds').containsKey('cachedItemsJson'), isFalse);
+      expect(providers.feed.cachedItemIds, isEmpty);
+      expect(providers.subscriptions.subscriptions.single.url, url);
+
+      server.handlers['/clear-cache.xml'] = (request) =>
+          _respondConditional(request, body);
+      await providers.feed.refreshAll();
+      expect(_persistedItems(), hasLength(1));
+      expect(providers.feed.cachedItemIds, contains('article'));
+      providers.feed.dispose();
+    },
+  );
+
+  test(
+    'auto-refresh uses changed interval and honors pause and toggle',
+    () async {
+      final subscriptions = SubscriptionProvider();
+      final enabledSettings = _TimerSettingsProvider();
+      final bookmarks = BookmarkProvider();
+      // Model one mutable settings instance without disk I/O or platform
+      // scheduler calls in the virtual clock's zone.
+      final feed = _CountingFeedProvider();
+      void update() => feed.update(subscriptions, enabledSettings, bookmarks);
+      enabledSettings.addListener(update);
+      fakeAsync((clock) {
+        update();
+        expect(feed.refreshCount, 1);
+        clock.elapse(const Duration(seconds: 30));
+        expect(feed.refreshCount, 2);
+        enabledSettings.change(interval: 60);
+        clock.elapse(const Duration(seconds: 30));
+        expect(feed.refreshCount, 2);
+        clock.elapse(const Duration(seconds: 30));
+        expect(feed.refreshCount, 3);
+        enabledSettings.change(enabled: false);
+        clock.elapse(const Duration(seconds: 120));
+        expect(feed.refreshCount, 3);
+        enabledSettings.change(enabled: true);
+        clock.elapse(const Duration(seconds: 60));
+        expect(feed.refreshCount, 4);
+        feed.pauseAutoRefresh();
+        enabledSettings.change(interval: 30);
+        clock.elapse(const Duration(seconds: 60));
+        expect(feed.refreshCount, 4);
+        feed.resumeAutoRefresh();
+        clock.elapse(const Duration(seconds: 30));
+        expect(feed.refreshCount, 5);
+        enabledSettings.removeListener(update);
+        feed.dispose();
+      });
+    },
+  );
+
+  test('next automatic refresh starts one interval after completion', () async {
+    final url = server.url('/refresh-timing.xml');
+    await _seedSubscriptions([
+      FeedSubscription(url: url, name: 'Timing', category: 'Test'),
+    ]);
+    await Hive.box('settings').put('syncBackground', true);
+    await Hive.box('settings').put('cacheIntervalSeconds', 1);
+    server.handlers['/refresh-timing.xml'] = (request) async {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await _respond200(request, _rss('Timing', ['article']));
+    };
+    final providers = _providers();
+    try {
+      await _waitForRefresh(providers.feed);
+      await _waitUntil(
+        () => (server.counts['/refresh-timing.xml'] ?? 0) >= 2,
+        timeout: const Duration(milliseconds: 1500),
+      );
+      await _waitForRefresh(providers.feed);
+    } finally {
+      providers.feed.dispose();
+    }
+  });
 
   test('no subscriptions never produces an offline banner', () async {
     final feed = FeedProvider(

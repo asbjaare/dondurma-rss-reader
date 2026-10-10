@@ -84,7 +84,8 @@ file_selector, package_info_plus, xml, intl, flutter_localizations
 ## Common Gotchas
 - Always use fallback defaults in JSON deserialization for backward compatibility
 - `_migrateHiveBoxes()` in `main.dart` is a one-time migration from the legacy single `'settings'` box; check it when adding new `'feeds'`/`'bookmarks'` keys
-- `_manageCacheTimer()` recreates timer on proxy provider updates
+- `_manageCacheTimer()` uses saved primitive settings values to detect in-place provider changes; successful refreshes anchor the next tick to completion, and paused lifecycle state prevents settings updates from restarting it
+- Cache limits apply immediately to persisted articles; zero deletes old offline data. Generation tokens prevent queued saves, fetches, and prefetch from undoing a cache clear
 - Category icons stored separately in Hive, assigned on first load; legacy emoji icons mapped to Material icons
 - Generated localization files in `lib/l10n/app_localizations*.dart` — do not edit manually
 - Tests cover parsing, fetch mechanics, filters, resume policy, feed rows, toast, responsive widths; extend changed behavior
