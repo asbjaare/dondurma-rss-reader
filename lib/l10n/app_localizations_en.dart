@@ -846,6 +846,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tabGlobal => 'Global';
 
   @override
+  String get countries => 'Countries';
+
+  @override
+  String get countryNorway => 'Norway';
+
+  @override
+  String get countryTurkey => 'Turkey';
+
+  @override
   String get tabTurkish => 'Turkish';
 
   @override

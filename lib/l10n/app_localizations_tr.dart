@@ -848,6 +848,15 @@ class AppLocalizationsTr extends AppLocalizations {
   String get tabGlobal => 'Global';
 
   @override
+  String get countries => 'Ülkeler';
+
+  @override
+  String get countryNorway => 'Norveç';
+
+  @override
+  String get countryTurkey => 'Türkiye';
+
+  @override
   String get tabTurkish => 'Türkçe';
 
   @override

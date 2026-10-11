@@ -1,3 +1,14 @@
+/// Countries with curated RSS lists bundled with the app.
+enum SuggestedFeedCountry {
+  norway('NO', 'suggested_feed_no.json'),
+  turkey('TR', 'suggested_feed_tr.json');
+
+  const SuggestedFeedCountry(this.code, this.catalogFile);
+
+  final String code;
+  final String catalogFile;
+}
+
 /// A curated feed suggestion from the remote `suggested_feeds*.json` lists.
 class SuggestedFeed {
   final String name;

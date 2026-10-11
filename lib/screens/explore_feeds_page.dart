@@ -15,7 +15,9 @@ import '../widgets/explore_feeds/explore_feeds_widgets.dart';
 /// Users can search by name, filter by category (via a bottom sheet picker),
 /// and subscribe with a single tap. Undo is offered via a global toast.
 class ExploreFeedsPage extends StatefulWidget {
-  const ExploreFeedsPage({super.key});
+  const ExploreFeedsPage({super.key, this.service});
+
+  final SuggestedFeedsService? service;
 
   @override
   State<ExploreFeedsPage> createState() => _ExploreFeedsPageState();
@@ -24,16 +26,18 @@ class ExploreFeedsPage extends StatefulWidget {
 class _ExploreFeedsPageState extends State<ExploreFeedsPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
-  final _service = SuggestedFeedsService();
+  late final SuggestedFeedsService _service;
+  SuggestedFeedCountry _selectedCountry = SuggestedFeedCountry.norway;
+  int _countryLoadId = 0;
 
   List<SuggestedFeed> _globalFeeds = [];
-  List<SuggestedFeed> _trFeeds = [];
+  List<SuggestedFeed> _countryFeeds = [];
   bool _isLoadingGlobal = true;
-  bool _isLoadingTr = true;
+  bool _isLoadingCountry = true;
   bool _hasErrorGlobal = false;
-  bool _hasErrorTr = false;
+  bool _hasErrorCountry = false;
   String? _selectedCategoryGlobal;
-  String? _selectedCategoryTr;
+  String? _selectedCategoryCountry;
   final Set<String> _subscribingUrls = {};
 
   final TextEditingController _searchController = TextEditingController();
@@ -42,10 +46,11 @@ class _ExploreFeedsPageState extends State<ExploreFeedsPage>
   @override
   void initState() {
     super.initState();
+    _service = widget.service ?? SuggestedFeedsService();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() => setState(() {}));
     _loadGlobalFeeds();
-    _loadTrFeeds();
+    _loadCountryFeeds();
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.toLowerCase().trim();
@@ -61,34 +66,37 @@ class _ExploreFeedsPageState extends State<ExploreFeedsPage>
   }
 
   List<SuggestedFeed> get _activeFeeds =>
-      _tabController.index == 0 ? _globalFeeds : _trFeeds;
+      _tabController.index == 0 ? _globalFeeds : _countryFeeds;
 
   bool get _activeIsLoading =>
-      _tabController.index == 0 ? _isLoadingGlobal : _isLoadingTr;
+      _tabController.index == 0 ? _isLoadingGlobal : _isLoadingCountry;
 
   bool get _activeHasError =>
-      _tabController.index == 0 ? _hasErrorGlobal : _hasErrorTr;
+      _tabController.index == 0 ? _hasErrorGlobal : _hasErrorCountry;
 
-  String? get _activeCategory =>
-      _tabController.index == 0 ? _selectedCategoryGlobal : _selectedCategoryTr;
+  String? get _activeCategory => _tabController.index == 0
+      ? _selectedCategoryGlobal
+      : _selectedCategoryCountry;
 
   void _setActiveCategory(String? val) {
     if (_tabController.index == 0) {
       _selectedCategoryGlobal = val;
     } else {
-      _selectedCategoryTr = val;
+      _selectedCategoryCountry = val;
     }
   }
 
   Future<void> _loadGlobalFeeds() async {
     try {
       final feeds = await _service.fetchGlobal();
+      if (!mounted) return;
       setState(() {
         _globalFeeds = feeds;
         _isLoadingGlobal = false;
       });
     } catch (e) {
       debugPrint('Error loading global feeds: $e');
+      if (!mounted) return;
       setState(() {
         _isLoadingGlobal = false;
         _hasErrorGlobal = true;
@@ -96,20 +104,43 @@ class _ExploreFeedsPageState extends State<ExploreFeedsPage>
     }
   }
 
-  Future<void> _loadTrFeeds() async {
+  Future<void> _loadCountryFeeds() async {
+    final loadId = ++_countryLoadId;
     try {
-      final feeds = await _service.fetchTurkish();
+      final feeds = await _service.fetchCountry(_selectedCountry);
+      if (!mounted || loadId != _countryLoadId) return;
       setState(() {
-        _trFeeds = feeds;
-        _isLoadingTr = false;
+        _countryFeeds = feeds;
+        _isLoadingCountry = false;
+        _hasErrorCountry = false;
       });
     } catch (e) {
-      debugPrint('Error loading TR feeds: $e');
+      debugPrint('Error loading country feeds: $e');
+      if (!mounted || loadId != _countryLoadId) return;
       setState(() {
-        _isLoadingTr = false;
-        _hasErrorTr = true;
+        _isLoadingCountry = false;
+        _hasErrorCountry = true;
       });
     }
+  }
+
+  String _countryName(SuggestedFeedCountry country, AppLocalizations l10n) =>
+      switch (country) {
+        SuggestedFeedCountry.norway => l10n.countryNorway,
+        SuggestedFeedCountry.turkey => l10n.countryTurkey,
+      };
+
+  void _selectCountry(SuggestedFeedCountry? country) {
+    if (country == null || country == _selectedCountry) return;
+    setState(() {
+      _selectedCountry = country;
+      _selectedCategoryCountry = null;
+      _countryFeeds = [];
+      _isLoadingCountry = true;
+      _hasErrorCountry = false;
+    });
+    _searchController.clear();
+    _loadCountryFeeds();
   }
 
   List<SuggestedFeed> get _displayedFeeds {
@@ -392,7 +423,9 @@ class _ExploreFeedsPageState extends State<ExploreFeedsPage>
         title: Text(l10n.suggestedFeeds),
         leading: const BackButton(),
         bottom: PreferredSize(
-          preferredSize: Size.fromHeight(hasContent ? 104 : 48),
+          preferredSize: Size.fromHeight(
+            (hasContent ? 104 : 48) + (_tabController.index == 1 ? 56 : 0),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -400,9 +433,32 @@ class _ExploreFeedsPageState extends State<ExploreFeedsPage>
                 controller: _tabController,
                 tabs: [
                   Tab(text: l10n.tabGlobal),
-                  Tab(text: l10n.tabTurkish),
+                  Tab(text: l10n.countries),
                 ],
               ),
+              if (_tabController.index == 1)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SizedBox(
+                    height: 56,
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<SuggestedFeedCountry>(
+                        key: const ValueKey('feed-country-selector'),
+                        value: _selectedCountry,
+                        isExpanded: true,
+                        items: SuggestedFeedCountry.values
+                            .map(
+                              (country) => DropdownMenuItem(
+                                value: country,
+                                child: Text(_countryName(country, l10n)),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: _selectCountry,
+                      ),
+                    ),
+                  ),
+                ),
               if (hasContent) ...[
                 Divider(
                   height: 1,

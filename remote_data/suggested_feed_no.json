@@ -1,0 +1,38 @@
+[
+  {
+    "name": "NRK – Toppsaker",
+    "url": "https://www.nrk.no/toppsaker.rss",
+    "category": "News",
+    "popularity": 10
+  },
+  {
+    "name": "NRK – Siste nytt",
+    "url": "https://www.nrk.no/nyheter/siste.rss",
+    "category": "News",
+    "popularity": 9
+  },
+  {
+    "name": "VG",
+    "url": "https://www.vg.no/rss/feed/",
+    "category": "News",
+    "popularity": 9
+  },
+  {
+    "name": "Aftenposten",
+    "url": "https://www.aftenposten.no/rss",
+    "category": "News",
+    "popularity": 8
+  },
+  {
+    "name": "E24",
+    "url": "https://e24.no/rss",
+    "category": "Business",
+    "popularity": 8
+  },
+  {
+    "name": "Teknisk Ukeblad",
+    "url": "https://www.tu.no/rss",
+    "category": "Technology",
+    "popularity": 8
+  }
+]

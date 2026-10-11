@@ -1660,6 +1660,24 @@ abstract class AppLocalizations {
   /// **'Global'**
   String get tabGlobal;
 
+  /// No description provided for @countries.
+  ///
+  /// In en, this message translates to:
+  /// **'Countries'**
+  String get countries;
+
+  /// No description provided for @countryNorway.
+  ///
+  /// In en, this message translates to:
+  /// **'Norway'**
+  String get countryNorway;
+
+  /// No description provided for @countryTurkey.
+  ///
+  /// In en, this message translates to:
+  /// **'Turkey'**
+  String get countryTurkey;
+
   /// No description provided for @tabTurkish.
   ///
   /// In en, this message translates to:

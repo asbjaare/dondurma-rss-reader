@@ -32,6 +32,7 @@ A modern Flutter RSS/Atom feed reader with Material 3 UI, FlexColorScheme themin
 - [`FeedService`](lib/services/feed_service.dart) — HTTP fetch with browser UA + keep-alive client, RSS/Atom parsing via `dart_rss`, HTTP 304 (etag/last-modified) support, isolate-based `parseFeedBody`
 - [`FullTextExtractionService`](lib/services/full_text_extraction_service.dart) — Heuristic content extraction, runs in isolate, shared 20-entry FIFO cache
 - [`NotificationService`](lib/services/notification_service.dart) — Singleton wrapper for `flutter_local_notifications`, quiet hours, digest modes, launch payload → article navigation
+- [`SuggestedFeedsService`](lib/services/suggested_feeds_service.dart) — Global remote catalog with bundled fallback; Countries picker uses bundled Norway/Turkey JSON lists in `remote_data/`, registered by `SuggestedFeedCountry`
 - [`OpmlService`](lib/services/opml_service.dart) — OPML export/import via `xml` package
 - [`BackgroundFetchService`](lib/services/background_fetch_service.dart) — Workmanager dispatcher with `@pragma('vm:entry-point')` callback; `NetworkType.connected`, 15-min minimum period; baseline-diffed notifications
 - [`WidgetUpdateService`](lib/services/widget_update_service.dart) — home_widget data sync (`widget_latest` key, category grouping), App Group `group.io.devopen.dondurma`, deep-link `homewidget://article?id=<id>`
