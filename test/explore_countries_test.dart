@@ -69,10 +69,20 @@ void main() {
     () async {
       final service = SuggestedFeedsService();
       final norway = await service.fetchCountry(SuggestedFeedCountry.norway);
-      expect(norway, hasLength(6));
+      expect(norway, hasLength(17));
       expect(
         norway.map((feed) => feed.name),
-        containsAll(['VG', 'Aftenposten', 'E24', 'Teknisk Ukeblad']),
+        containsAll([
+          'VG',
+          'Aftenposten',
+          'E24',
+          'Teknisk Ukeblad',
+          'Sykepleien',
+          'Khrono',
+          'forskning.no',
+          'Dagens Medisin',
+          'Utdanningsnytt',
+        ]),
       );
       expect(norway.map((feed) => feed.url).toSet(), hasLength(norway.length));
       expect(

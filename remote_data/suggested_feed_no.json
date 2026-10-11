@@ -34,5 +34,71 @@
     "url": "https://www.tu.no/rss",
     "category": "Technology",
     "popularity": 8
+  },
+  {
+    "name": "Sykepleien",
+    "url": "https://sykepleien.no/rss.xml",
+    "category": "Health",
+    "popularity": 9
+  },
+  {
+    "name": "Khrono",
+    "url": "https://www.khrono.no/?lab_viewport=rss",
+    "category": "Education",
+    "popularity": 9
+  },
+  {
+    "name": "forskning.no",
+    "url": "https://www.forskning.no/?lab_viewport=rss",
+    "category": "Science",
+    "popularity": 8
+  },
+  {
+    "name": "Gemini",
+    "url": "https://gemini.no/feed/",
+    "category": "Science",
+    "popularity": 7
+  },
+  {
+    "name": "Dagens Medisin",
+    "url": "https://www.dagensmedisin.no/?lab_viewport=rss",
+    "category": "Health",
+    "popularity": 8
+  },
+  {
+    "name": "Universitetsavisa",
+    "url": "https://www.universitetsavisa.no/?lab_viewport=rss",
+    "category": "Education",
+    "popularity": 7
+  },
+  {
+    "name": "Utdanningsnytt",
+    "url": "https://www.utdanningsnytt.no/?lab_viewport=rss",
+    "category": "Education",
+    "popularity": 7
+  },
+  {
+    "name": "Digi",
+    "url": "https://www.digi.no/rss",
+    "category": "Technology",
+    "popularity": 7
+  },
+  {
+    "name": "Nettavisen",
+    "url": "https://www.nettavisen.no/service/rich-rss",
+    "category": "News",
+    "popularity": 7
+  },
+  {
+    "name": "Bergens Tidende",
+    "url": "https://www.bt.no/rss",
+    "category": "News",
+    "popularity": 7
+  },
+  {
+    "name": "Stavanger Aftenblad",
+    "url": "https://www.aftenbladet.no/rss",
+    "category": "News",
+    "popularity": 7
   }
 ]
