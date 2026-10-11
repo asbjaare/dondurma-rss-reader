@@ -30,6 +30,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   int _selectedIndex = 0;
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
@@ -307,6 +308,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     return Scaffold(
+      key: _scaffoldKey,
       extendBody: true,
       appBar: AppBar(
         title: AnimatedSwitcher(
@@ -479,7 +481,13 @@ class _HomeScreenState extends State<HomeScreen> {
                               : Icons.list_outlined,
                           label: l10n.feedsTab,
                           selected: _selectedIndex == 0,
-                          onTap: () => _onItemTapped(0),
+                          onTap: () {
+                            if (_selectedIndex == 0) {
+                              _scaffoldKey.currentState?.openDrawer();
+                            } else {
+                              _onItemTapped(0);
+                            }
+                          },
                         ),
                       ),
                       Expanded(

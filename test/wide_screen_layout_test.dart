@@ -131,6 +131,37 @@ void main() {
   });
 
   group('HomeScreen wide layout regression', () {
+    testWidgets(
+      'reselecting Feeds opens categories; returning only shows feeds',
+      (tester) async {
+        await tester.pumpWidget(wrapHome());
+        await tester.pumpAndSettle();
+
+        final scaffold = tester.state<ScaffoldState>(
+          find.byType(Scaffold).first,
+        );
+        expect(scaffold.isDrawerOpen, isFalse);
+
+        await tester.tap(find.bySemanticsLabel('Feeds'));
+        await tester.pumpAndSettle();
+        expect(scaffold.isDrawerOpen, isTrue);
+        expect(find.text('Categories'), findsOneWidget);
+
+        scaffold.closeDrawer();
+        await tester.pumpAndSettle();
+        await tester.tap(find.bySemanticsLabel('Categories'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.bySemanticsLabel('Feeds'));
+        await tester.pumpAndSettle();
+        expect(scaffold.isDrawerOpen, isFalse);
+        expect(find.text('My Feeds'), findsOneWidget);
+
+        await tester.tap(find.bySemanticsLabel('Feeds'));
+        await tester.pumpAndSettle();
+        expect(scaffold.isDrawerOpen, isTrue);
+      },
+    );
+
     testWidgets('no overflow at tablet (1280x800dp)', (tester) async {
       tester.view.physicalSize = const Size(2560, 1600);
       tester.view.devicePixelRatio = 2.0;
